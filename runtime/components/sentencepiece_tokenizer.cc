@@ -23,6 +23,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/str_join.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "sentencepiece_processor.h"  // from @sentencepiece
 
@@ -70,11 +71,9 @@ absl::StatusOr<int> SentencePieceTokenizer::TokenToId(absl::string_view token) {
 // Decodes the given TensorBuffer of token ids into a string.
 absl::StatusOr<std::string> SentencePieceTokenizer::TokenIdsToText(
     const std::vector<int>& token_ids) {
-  std::string text = "";
-  for (const auto& token_id : token_ids) {
-    text += processor_->IdToPiece(token_id);
-  }
-  return text;
+  return absl::StrJoin(token_ids, "", [this](std::string* out, int token_id) {
+    out->append(processor_->IdToPiece(token_id));
+  });
 }
 
 }  // namespace litert::lm
