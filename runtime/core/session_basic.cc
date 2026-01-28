@@ -240,6 +240,11 @@ absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
   if (contents.empty()) {
     return absl::InvalidArgumentError("Input is empty.");
   }
+  ABSL_LOG(INFO) << "RunPrefill: ";
+  for (const auto& content : contents) {
+    ABSL_LOG(INFO) << content;
+  }
+
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
@@ -258,15 +263,9 @@ absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
                      PreprocessContents(templated_contents, session_config_,
                                         tokenizer_, benchmark_info_));
   }
-  absl::Status status;
-  RETURN_IF_ERROR(worker_thread_pool_.Schedule(
-      [this, preprocessed_contents = std::move(preprocessed_contents),
-       &status]() {
-        status = this->PrefillInternal(preprocessed_contents,
-                                       /*wait_for_completion=*/true);
-      }));
-  RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
-  return status;
+
+  return PrefillInternal(preprocessed_contents,
+                         /*wait_for_completion=*/true);
 }
 
 absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
@@ -275,6 +274,11 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
   if (contents.empty()) {
     return absl::InvalidArgumentError("Input is empty.");
   }
+  ABSL_LOG(INFO) << "RunPrefillAsync: ";
+  for (const auto& content : contents) {
+    ABSL_LOG(INFO) << content;
+  }
+
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
@@ -316,12 +320,11 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
 absl::StatusOr<Responses> SessionBasic::DecodeInternal(
     const DecodeConfig& decode_config) {
   if (sampler_ == nullptr) {
-    ASSIGN_OR_RETURN(
-        auto responses,
-        Decode(executor_, tokenizer_, stop_token_detector_,
-               session_config_.GetNumOutputCandidates(),
-               decode_config.GetConstraint(), benchmark_info_, &cancelled_,
-               session_config_.GetMaxOutputTokens()));
+    ASSIGN_OR_RETURN(auto responses,
+                     Decode(executor_, tokenizer_, stop_token_detector_,
+                            session_config_.GetNumOutputCandidates(),
+                            decode_config.GetConstraint(), benchmark_info_,
+                            &cancelled_, session_config_.GetMaxOutputTokens()));
     return responses;
   } else {
     std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
@@ -330,14 +333,13 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal(
         auto decoded_ids_buffer,
         CopyToTensorBuffer<int>(decoded_ids,
                                 {session_config_.GetNumOutputCandidates(), 1}));
-    ASSIGN_OR_RETURN(
-        auto responses,
-        DecodeCustomSampling(executor_, tokenizer_, stop_token_detector_,
-                             session_config_.GetNumOutputCandidates(),
-                             *sampler_, std::move(decoded_ids_buffer),
-                             decode_config.GetConstraint(), benchmark_info_,
-                             &cancelled_,
-                            session_config_.GetMaxOutputTokens()));
+    ASSIGN_OR_RETURN(auto responses,
+                     DecodeCustomSampling(
+                         executor_, tokenizer_, stop_token_detector_,
+                         session_config_.GetNumOutputCandidates(), *sampler_,
+                         std::move(decoded_ids_buffer),
+                         decode_config.GetConstraint(), benchmark_info_,
+                         &cancelled_, session_config_.GetMaxOutputTokens()));
     return responses;
   }
 }
@@ -380,13 +382,7 @@ absl::StatusOr<Responses> SessionBasic::RunDecode(
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
-  absl::StatusOr<Responses> responses;
-  RETURN_IF_ERROR(
-      worker_thread_pool_.Schedule([this, &responses, decode_config]() {
-        responses = this->DecodeInternal(decode_config);
-      }));
-  RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
-  return responses;
+  return DecodeInternal(decode_config);
 }
 
 absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunDecodeAsync(
@@ -416,10 +412,6 @@ absl::StatusOr<Responses> SessionBasic::GenerateContent(
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
-  ABSL_DLOG(INFO) << "GenerateContent";
-  for (const auto& content : contents) {
-    ABSL_DLOG(INFO) << content;
-  }
   RETURN_IF_ERROR(RunPrefill(contents));
   return RunDecode(DecodeConfig::CreateDefault());
 }
@@ -427,7 +419,25 @@ absl::StatusOr<Responses> SessionBasic::GenerateContent(
 absl::StatusOr<Responses> SessionBasic::RunTextScoring(
     const std::vector<absl::string_view>& target_text,
     bool store_token_lengths) {
-  // Currently batch scoring is not supported by the models.
+  absl::StatusOr<Responses> collected_responses;
+  auto scoring_sync_callback =
+      [&collected_responses](absl::StatusOr<Responses> responses) {
+        collected_responses = std::move(responses);
+      };
+
+  ASSIGN_OR_RETURN(auto task_controller,
+                   RunTextScoringAsync(target_text,
+                                       std::move(scoring_sync_callback),
+                                       store_token_lengths));
+  RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
+  return collected_responses;
+}
+
+absl::StatusOr<std::unique_ptr<Engine::Session::TaskController>>
+SessionBasic::RunTextScoringAsync(
+    const std::vector<absl::string_view>& target_text,
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
+    bool store_token_lengths) {
   if (target_text.size() != 1) {
     return absl::InvalidArgumentError("Target text size should be 1.");
   }
@@ -436,26 +446,23 @@ absl::StatusOr<Responses> SessionBasic::RunTextScoring(
   // the sampler or the sampler parameters? For now, hardcode it to 1.0f for
   // testing.
   auto temperature = 1.0f;
-  absl::StatusOr<Responses> score;
-  // Scheduled on the worker thread pool to ensure serialized execution with
-  // other engine operations as the function waits for completion.
-  RETURN_IF_ERROR(worker_thread_pool_.Schedule([this, &score, &target_text,
-                                                store_token_lengths,
-                                                &temperature]() mutable {
-    std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
-                                 last_prefill_token_id_);
-    auto decoded_ids_buffer = CopyToTensorBuffer<int>(
-        decoded_ids, {session_config_.GetNumOutputCandidates(), 1});
-    if (!decoded_ids_buffer.HasValue()) {
-      score = absl::InternalError(decoded_ids_buffer.Error().Message());
-      return;
-    }
-    score = ScoreCustomSampling(executor_, tokenizer_, target_text, temperature,
-                                std::move(decoded_ids_buffer.Value()),
-                                store_token_lengths);
-  }));
-  RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
-  return score;
+  RETURN_IF_ERROR(worker_thread_pool_.Schedule(
+      [this, callback = std::move(callback), target_text, store_token_lengths,
+       temperature]() mutable {
+        std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
+                                     last_prefill_token_id_);
+        auto decoded_ids_buffer = CopyToTensorBuffer<int>(
+            decoded_ids, {session_config_.GetNumOutputCandidates(), 1});
+        if (!decoded_ids_buffer.HasValue()) {
+          callback(absl::InternalError(decoded_ids_buffer.Error().Message()));
+          return;
+        }
+        callback(ScoreCustomSampling(executor_, tokenizer_, target_text,
+                                     temperature,
+                                     std::move(decoded_ids_buffer.Value()),
+                                     store_token_lengths));
+      }));
+  return nullptr;
 }
 
 absl::Status SessionBasic::GenerateContentStream(
@@ -472,10 +479,6 @@ absl::Status SessionBasic::GenerateContentStream(
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
-  }
-  ABSL_DLOG(INFO) << "GenerateContentStream";
-  for (const auto& content : contents) {
-    ABSL_DLOG(INFO) << content;
   }
 
   ASSIGN_OR_RETURN(

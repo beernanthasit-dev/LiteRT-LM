@@ -2,14 +2,14 @@
 
 workspace(name = "litert_lm")
 
-# UPDATED = 2026-01-07
-LITERT_REF = "08276903a22adf928d974f300978b7c83cbf8556"
+# UPDATED = 2026-01-27
+LITERT_REF = "0263e7e41259f22346e7c06424de6b848c4e1534"
 
-LITERT_SHA256 = "41eaa12760a4402994d5adc7bfe47fec9bc82063f00d09d4e4d4bd0384ed5bca"
+LITERT_SHA256 = "965d73f3fd4100e45dbfc0b831308152d519c7a4093cf23172226db8893a8800"
 
-TENSORFLOW_REF = "7144528c14231eafe07a19fdb09c96497fda79e4"
+TENSORFLOW_REF = "8f3530279031a4d7129cd3266ef74b954541aee8"
 
-TENSORFLOW_SHA256 = "3a7bde1fc590cefd3c7675addb3de9a3d26ec2d3072a7c2a1da8a97fc2ccdbd3"
+TENSORFLOW_SHA256 = "6ac971e317e81121a1dc34e25b0aa146d64addf555742e2347ab6917e803c49f"
 
 # buildifier: disable=load-on-top
 
@@ -60,10 +60,30 @@ load("@rules_rust//crate_universe:repositories.bzl", "crate_universe_dependencie
 
 crate_universe_dependencies()
 
-load("@rules_rust//crate_universe:defs.bzl", "crates_repository")
+load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_repository")
 
 crates_repository(
     name = "crate_index",
+    annotations = {
+        "llguidance": [
+            crate.annotation(
+                additive_build_file = "@//:BUILD.llguidance",
+                gen_build_script = False,
+                patches = [
+                    "@//:PATCH.llguidance_regexvec",
+                    "@//:PATCH.llguidance_numeric",
+                    "@//:PATCH.llguidance_grammar",
+                    "@//:PATCH.llguidance_parser",
+                    "@//:PATCH.llguidance_perf",
+                ],
+            ),
+        ],
+        "toktrie": [
+            crate.annotation(
+                patches = ["@//:PATCH.toktrie"],
+            ),
+        ],
+    },
     cargo_lockfile = "//:Cargo.lock",
     lockfile = "//:cargo-bazel-lock.json",
     manifests = [
@@ -80,6 +100,7 @@ crate_repositories()
 http_archive(
     name = "cxxbridge_cmd",
     build_file = "//cxxbridge_cmd:BUILD.cxxbridge_cmd.bazel",
+    integrity = "sha256-pf/3kWu94FwtuZRp8J3PryA78lsJbMv052GgR5JBLhA=",
     strip_prefix = "cxxbridge-cmd-1.0.149",
     type = "tar.gz",
     urls = ["https://static.crates.io/crates/cxxbridge-cmd/cxxbridge-cmd-1.0.149.crate"],
@@ -133,11 +154,11 @@ load(
 cc_toolchain_deps()
 
 # Initialize hermetic Python
-load("@local_xla//third_party/py:python_init_rules.bzl", "python_init_rules")
+load("@xla//third_party/py:python_init_rules.bzl", "python_init_rules")
 
 python_init_rules()
 
-load("@local_xla//third_party/py:python_init_repositories.bzl", "python_init_repositories")
+load("@xla//third_party/py:python_init_repositories.bzl", "python_init_repositories")
 
 python_init_repositories(
     default_python_version = "system",
@@ -148,7 +169,6 @@ python_init_repositories(
     ],
     local_wheel_workspaces = ["@org_tensorflow//:WORKSPACE"],
     requirements = {
-        "3.9": "@org_tensorflow//:requirements_lock_3_9.txt",
         "3.10": "@org_tensorflow//:requirements_lock_3_10.txt",
         "3.11": "@org_tensorflow//:requirements_lock_3_11.txt",
         "3.12": "@org_tensorflow//:requirements_lock_3_12.txt",
@@ -156,11 +176,11 @@ python_init_repositories(
     },
 )
 
-load("@local_xla//third_party/py:python_init_toolchains.bzl", "python_init_toolchains")
+load("@xla//third_party/py:python_init_toolchains.bzl", "python_init_toolchains")
 
 python_init_toolchains()
 
-load("@local_xla//third_party/py:python_init_pip.bzl", "python_init_pip")
+load("@xla//third_party/py:python_init_pip.bzl", "python_init_pip")
 
 python_init_pip()
 
@@ -208,7 +228,7 @@ load("@org_tensorflow//tensorflow:workspace0.bzl", "tf_workspace0")
 tf_workspace0()
 
 load(
-    "@local_xla//third_party/py:python_wheel.bzl",
+    "@xla//third_party/py:python_wheel.bzl",
     "python_wheel_version_suffix_repository",
 )
 
@@ -371,46 +391,10 @@ http_archive(
     urls = ["https://github.com/nothings/stb/archive/f58f558c120e9b32c217290b80bad1a0729fbb2c.zip"],
 )
 
-http_archive(
-    name = "rules_antlr",
-    sha256 = "26e6a83c665cf6c1093b628b3a749071322f0f70305d12ede30909695ed85591",
-    strip_prefix = "rules_antlr-0.5.0",
-    urls = ["https://github.com/marcohu/rules_antlr/archive/0.5.0.tar.gz"],
-)
-
-http_jar(
-    name = "antlr4_tool",
-    url = "https://jcenter.bintray.com/org/antlr/antlr4/4.13.2/antlr4-4.13.2.jar",
-)
-
 http_jar(
     name = "javax_json",
     sha256 = "0e1dec40a1ede965941251eda968aeee052cc4f50378bc316cc48e8159bdbeb4",
     url = "https://jcenter.bintray.com/org/glassfish/javax.json/1.0.4/javax.json-1.0.4.jar",
-)
-
-http_jar(
-    name = "stringtemplate4",
-    sha256 = "58caabc40c9f74b0b5993fd868e0f64a50c0759094e6a251aaafad98edfc7a3b",
-    url = "https://jcenter.bintray.com/org/antlr/ST4/4.0.8/ST4-4.0.8.jar",
-)
-
-http_jar(
-    name = "antlr3_runtime",
-    sha256 = "ce3fc8ecb10f39e9a3cddcbb2ce350d272d9cd3d0b1e18e6fe73c3b9389c8734",
-    url = "https://jcenter.bintray.com/org/antlr/antlr-runtime/3.5.2/antlr-runtime-3.5.2.jar",
-)
-
-http_jar(
-    name = "antlr4_runtime",
-    url = "https://repo1.maven.org/maven2/org/antlr/antlr4-runtime/4.13.2/antlr4-runtime-4.13.2.jar",
-)
-
-http_archive(
-    name = "antlr4",
-    build_file = "@//:BUILD.antlr4",
-    strip_prefix = "antlr4-bd8f9930d053ec6a83e7d751e8c6f69138957665",
-    urls = ["https://github.com/antlr/antlr4/archive/bd8f9930d053ec6a83e7d751e8c6f69138957665.tar.gz"],
 )
 
 # Android rules. Need latest rules_android_ndk to use NDK 26+.

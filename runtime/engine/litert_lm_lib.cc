@@ -155,6 +155,10 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
           ":nocache");
     }
   }
+  if (!settings.litert_dispatch_lib_dir.empty()) {
+    engine_settings.GetMutableMainExecutorSettings().SetLitertDispatchLibDir(
+        settings.litert_dispatch_lib_dir);
+  }
   if (backend == Backend::CPU) {
     auto& executor_settings = engine_settings.GetMutableMainExecutorSettings();
     ASSIGN_OR_RETURN(
@@ -173,6 +177,10 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
         executor_settings.MutableBackendConfig<litert::lm::GpuConfig>());
     gpu_settings.external_tensor_mode = settings.gpu_external_tensor_mode;
     executor_settings.SetBackendConfig(gpu_settings);
+  }
+  if (backend == Backend::GPU_ARTISAN) {
+    auto& executor_settings = engine_settings.GetMutableMainExecutorSettings();
+    executor_settings.SetMaxNumImages(settings.max_num_images);
   }
   const std::optional<Backend> sampler_backend = GetSamplerBackend(settings);
   if (sampler_backend.has_value()) {
@@ -197,6 +205,7 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
       .convert_weights_on_gpu = settings.convert_weights_on_gpu,
       .optimize_shader_compilation = settings.optimize_shader_compilation,
       .share_constant_tensors = settings.share_constant_tensors,
+      .sampler_handles_input = settings.sampler_handles_input,
   };
   if (advanced_settings != AdvancedSettings()) {
     engine_settings.GetMutableMainExecutorSettings().SetAdvancedSettings(

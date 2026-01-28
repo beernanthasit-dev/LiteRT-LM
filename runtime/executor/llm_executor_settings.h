@@ -136,9 +136,14 @@ struct AdvancedSettings {
   // dimensions.
   bool verify_magic_numbers = false;
 
-  // For debugging purpose, whether to clear kv cache before the first prefill
-  // step which may help to disclose any issues related to kv cache.
-  bool clear_kv_cache_before_prefill = false;
+  // Whether to clear kv cache before the first prefill step which may help to
+  // disclose any issues related to kv cache.
+  // When mask is in floating point and KV cache is not cleared, some
+  // uninitialized values in KV cache, .e.g. NaN, may disrupt calculations
+  // improperly.
+  // Disable it if it's safe to keep the KV cache uninitialized, e.g. quantized,
+  // so, they can't be NaN.
+  bool clear_kv_cache_before_prefill = true;
 
   // For debugging purpose, the number of values at the beginning of logits, in
   // the middle of logits, and at the end of logits to print after each decode
@@ -181,6 +186,10 @@ struct AdvancedSettings {
   // tensor sharing is enabled.
   bool share_constant_tensors = true;
 
+  // If true and the sampler supports, the sampler manipulates decode input
+  // tensors including tokens, positions, and mask.
+  bool sampler_handles_input = true;
+
   bool operator==(const AdvancedSettings& other) const {
     return prefill_batch_sizes == other.prefill_batch_sizes &&
            num_output_candidates == other.num_output_candidates &&
@@ -198,7 +207,8 @@ struct AdvancedSettings {
            num_threads_to_compile == other.num_threads_to_compile &&
            convert_weights_on_gpu == other.convert_weights_on_gpu &&
            optimize_shader_compilation == other.optimize_shader_compilation &&
-           share_constant_tensors == other.share_constant_tensors;
+           share_constant_tensors == other.share_constant_tensors &&
+           sampler_handles_input == other.sampler_handles_input;
   }
 };
 std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings);
@@ -219,7 +229,7 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
       ModelAssets model_assets, Backend backend = Backend::CPU);
 
   uint32_t GetMaxNumTokens() const { return max_num_tokens_; }
-  void SetMaxNumTokens(uint64_t max_num_tokens) {
+  void SetMaxNumTokens(uint32_t max_num_tokens) {
     max_num_tokens_ = max_num_tokens;
   }
 
@@ -308,6 +318,20 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
                                   const LlmExecutorSettings& config);
 };
 std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config);
+
+// Struct to host the runtime settings for the executor.
+// Settings will not be changed by the executor while executing task.
+// TODO: b/404279705 - Set default values in LLM Executor RuntimeConfig
+struct RuntimeConfig {
+
+  // The number of output heads.
+  // Multiple output heads might be supported in the future. For now, it is
+  // always 1.
+  std::optional<int> output_heads;
+
+  // The number of tokens per decode function call.
+  std::optional<int> tokens_per_decode;
+};
 
 }  // namespace litert::lm
 

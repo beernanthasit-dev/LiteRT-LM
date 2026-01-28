@@ -153,21 +153,10 @@ SamplerParameters::Type ToSamplerParametersType(Type type) {
   return SamplerParameters::TYPE_UNSPECIFIED;
 }
 
-LiteRtLmSessionConfig* litert_lm_session_config_create(
-    const LiteRtLmSamplerParams* sampler_params) {
+LiteRtLmSessionConfig* litert_lm_session_config_create() {
   auto* c_config = new LiteRtLmSessionConfig;
   c_config->config =
       std::make_unique<SessionConfig>(SessionConfig::CreateDefault());
-  if (sampler_params) {
-    SamplerParameters& params = c_config->config->GetMutableSamplerParams();
-
-    params.set_type(ToSamplerParametersType(sampler_params->type));
-
-    params.set_k(sampler_params->top_k);
-    params.set_p(sampler_params->top_p);
-    params.set_temperature(sampler_params->temperature);
-    params.set_seed(sampler_params->seed);
-  }
   return c_config;
 }
 
@@ -175,6 +164,21 @@ void litert_lm_session_config_set_max_output_tokens(
     LiteRtLmSessionConfig* config, int max_output_tokens) {
   if (config && config->config) {
     config->config->SetMaxOutputTokens(max_output_tokens);
+  }
+}
+
+void litert_lm_session_config_set_sampler_params(
+    LiteRtLmSessionConfig* config,
+    const LiteRtLmSamplerParams* sampler_params) {
+  if (config && config->config && sampler_params) {
+    SamplerParameters& params = config->config->GetMutableSamplerParams();
+
+    params.set_type(ToSamplerParametersType(sampler_params->type));
+
+    params.set_k(sampler_params->top_k);
+    params.set_p(sampler_params->top_p);
+    params.set_temperature(sampler_params->temperature);
+    params.set_seed(sampler_params->seed);
   }
 }
 
@@ -308,6 +312,14 @@ void litert_lm_engine_settings_enable_benchmark(
     LiteRtLmEngineSettings* settings) {
   if (settings && settings->settings) {
     settings->settings->GetMutableBenchmarkParams();
+  }
+}
+
+void litert_lm_engine_settings_set_activation_data_type(
+    LiteRtLmEngineSettings* settings, int activation_data_type_int) {
+  if (settings && settings->settings) {
+    settings->settings->GetMutableMainExecutorSettings().SetActivationDataType(
+      static_cast<litert::lm::ActivationDataType>(activation_data_type_int));
   }
 }
 
@@ -498,6 +510,30 @@ int litert_lm_benchmark_info_get_num_decode_turns(
     return 0;
   }
   return benchmark_info->benchmark_info.GetTotalDecodeTurns();
+}
+
+int litert_lm_benchmark_info_get_prefill_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index) {
+  if (!benchmark_info) {
+    return 0;
+  }
+  auto turn = benchmark_info->benchmark_info.GetPrefillTurn(index);
+  if (!turn.ok()) {
+    return 0;
+  }
+  return static_cast<int>(turn->num_tokens);
+}
+
+int litert_lm_benchmark_info_get_decode_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index) {
+  if (!benchmark_info) {
+    return 0;
+  }
+  auto turn = benchmark_info->benchmark_info.GetDecodeTurn(index);
+  if (!turn.ok()) {
+    return 0;
+  }
+  return static_cast<int>(turn->num_tokens);
 }
 
 double litert_lm_benchmark_info_get_prefill_tokens_per_sec_at(

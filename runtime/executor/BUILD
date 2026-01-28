@@ -119,6 +119,7 @@ cc_library(
         "//runtime/components:model_resources_litert_lm",
         "//runtime/components:model_resources_task",
         "//runtime/components:sentencepiece_tokenizer",
+        "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:external_file_cc_proto",
         "//runtime/util:file_format_util",
         "//runtime/util:litert_lm_loader",
@@ -234,6 +235,7 @@ cc_library(
         ":llm_executor_processed_tokens",
         ":llm_executor_settings",
         ":llm_litert_compiled_model_cache_utils",
+        ":llm_processed_context",
         ":magic_number_configs_helper",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -323,6 +325,24 @@ cc_test(
             "@litert//litert/cc:litert_layout",
             "@litert//litert/cc:litert_macros",
             "@litert//litert/cc:litert_model",
+        ],
+    }),
+)
+
+cc_library(
+    name = "llm_processed_context",
+    hdrs = ["llm_processed_context.h"],
+    deps = [
+        ":llm_executor_io_types",
+        ":llm_executor_processed_tokens",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/strings:string_view",
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_api_with_dynamic_runtime",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -450,6 +470,7 @@ cc_library(
     hdrs = ["llm_executor_base.h"],
     deps = [
         ":llm_executor_io_types",
+        ":llm_executor_processed_tokens",
         ":llm_executor_settings",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -572,6 +593,8 @@ cc_library(
     srcs = ["llm_executor_io_types.cc"],
     hdrs = ["llm_executor_io_types.h"],
     deps = [
+        ":llm_executor_processed_tokens",
+        ":llm_executor_settings",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

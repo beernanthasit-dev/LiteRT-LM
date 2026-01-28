@@ -319,7 +319,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, DecodeLogitsTest) {
     ASSERT_OK_AND_ASSIGN(auto output_logits, executor->DecodeLogits(inputs));
 
     ASSERT_OK_AND_ASSIGN(auto current_step, executor->GetCurrentStep());
-    EXPECT_EQ(current_step, 1);
+    EXPECT_EQ(current_step, 2);
 
     auto output_logits_span = ReferTensorBufferAsSpan<float>(output_logits);
     EXPECT_TRUE(output_logits_span.HasValue());
@@ -599,7 +599,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   step = (*executor)->GetCurrentStep();
   EXPECT_OK(step);
   // First pending tokens were processed.
-  EXPECT_EQ(*step, 5 + kDecodeSteps - 1);
+  EXPECT_EQ(*step, 5 + kDecodeSteps);
   step_and_token =
       (*executor)->processed_tokens_for_testing().GetNextUnprocessedToken();
   EXPECT_EQ(step_and_token.step, 4 + kDecodeSteps);
@@ -614,7 +614,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   EXPECT_OK((*executor)->Prefill(inputs_next));
   step = (*executor)->GetCurrentStep();
   EXPECT_OK(step);
-  EXPECT_EQ(*step, 5 + kDecodeSteps);
+  EXPECT_EQ(*step, 5 + kDecodeSteps + 1);
   step_and_token =
       (*executor)->processed_tokens_for_testing().GetNextUnprocessedToken();
   EXPECT_EQ(step_and_token.step, 4 + kDecodeSteps);
@@ -688,7 +688,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   step = (*executor)->GetCurrentStep();
   EXPECT_OK(step);
   // First pending tokens were ignored.
-  EXPECT_EQ(*step, 5 + kDecodeSteps - 1);
+  EXPECT_EQ(*step, 5 + kDecodeSteps);
   step_and_token =
       (*executor)->processed_tokens_for_testing().GetNextUnprocessedToken();
   EXPECT_EQ(step_and_token.step, 4 + kDecodeSteps);
@@ -703,7 +703,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   EXPECT_OK((*executor)->Prefill(inputs_next));
   step = (*executor)->GetCurrentStep();
   EXPECT_OK(step);
-  EXPECT_EQ(*step, 5 + kDecodeSteps);
+  EXPECT_EQ(*step, 5 + kDecodeSteps + 1);
   step_and_token =
       (*executor)->processed_tokens_for_testing().GetNextUnprocessedToken();
   EXPECT_EQ(step_and_token.step, 4 + kDecodeSteps);
@@ -757,7 +757,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
 absl::StatusOr<
     std::pair<std::unique_ptr<ModelResources>,
               std::unique_ptr<LlmLiteRtCompiledModelExecutorDynamic>>>
-CreateDynamicExecutor(absl::string_view model_path,
+CreateDynamicExecutor(Environment& env, absl::string_view model_path,
                       uint32_t kv_increment_size = 8,
                       int prefill_chunk_size = -1) {
   auto path = std::filesystem::path(::testing::SrcDir()) / model_path;
@@ -773,8 +773,6 @@ CreateDynamicExecutor(absl::string_view model_path,
   config.kv_increment_size = kv_increment_size;
   config.prefill_chunk_size = prefill_chunk_size;
   executor_settings->SetBackendConfig(config);
-  LITERT_ASSIGN_OR_RETURN(
-      auto env, Environment::Create(std::vector<Environment::Option>()));
   ASSIGN_OR_RETURN(auto executor,
                    LlmLiteRtCompiledModelExecutorDynamic::Create(
                        *executor_settings, env, *model_resources));
@@ -782,10 +780,13 @@ CreateDynamicExecutor(absl::string_view model_path,
 }
 
 TEST(LlmLiteRtCompiledModelExecutorDynamicTest, PrefillTest) {
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   std::unique_ptr<ModelResources> model_resources;
   std::unique_ptr<LlmLiteRtCompiledModelExecutorDynamic> executor;
   {
-    ASSERT_OK_AND_ASSIGN(auto p, CreateDynamicExecutor(kTestDynamicModelPath));
+    ASSERT_OK_AND_ASSIGN(auto p,
+                         CreateDynamicExecutor(env, kTestDynamicModelPath));
     std::tie(model_resources, executor) = std::move(p);
   }
 
@@ -806,10 +807,13 @@ TEST(LlmLiteRtCompiledModelExecutorDynamicTest, PrefillTest) {
 }
 
 TEST(LlmLiteRtCompiledModelExecutorDynamicTest, DecodeTest) {
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   std::unique_ptr<ModelResources> model_resources;
   std::unique_ptr<LlmLiteRtCompiledModelExecutorDynamic> executor;
   {
-    ASSERT_OK_AND_ASSIGN(auto p, CreateDynamicExecutor(kTestDynamicModelPath));
+    ASSERT_OK_AND_ASSIGN(auto p,
+                         CreateDynamicExecutor(env, kTestDynamicModelPath));
     std::tie(model_resources, executor) = std::move(p);
   }
 

@@ -19,7 +19,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <thread>  // NOLINT
 #include <utility>
 #include <vector>
 
@@ -223,7 +222,50 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionAdvanced::RunDecodeAsync(
 absl::StatusOr<Responses> SessionAdvanced::RunTextScoring(
     const std::vector<absl::string_view>& target_text,
     bool store_token_lengths) {
-  return absl::UnimplementedError("RunTextScoring is not implemented.");
+  if (target_text.size() != 1) {
+    // Batch scoring is not supported yet.
+    return absl::InvalidArgumentError("Target text size should be 1.");
+  }
+  auto execution_manager_lock = execution_manager_.lock();
+  if (execution_manager_lock == nullptr) {
+    return absl::FailedPreconditionError("Execution manager is not available.");
+  }
+
+  absl::StatusOr<Responses> collected_responses;
+  auto scoring_sync_callback =
+      [&collected_responses](absl::StatusOr<Responses> responses) {
+        collected_responses = std::move(responses);
+      };
+
+  ASSIGN_OR_RETURN(auto task_controller,
+                   RunTextScoringAsync(target_text,
+                                       std::move(scoring_sync_callback),
+                                       store_token_lengths));
+  RETURN_IF_ERROR(task_controller->WaitUntilDone(Engine::kDefaultTimeout));
+  return collected_responses;
+}
+
+absl::StatusOr<std::unique_ptr<Engine::Session::TaskController>>
+SessionAdvanced::RunTextScoringAsync(
+    const std::vector<absl::string_view>& target_text,
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
+    bool store_token_lengths) {
+  if (target_text.size() != 1) {
+    return absl::InvalidArgumentError("Target text size should be 1.");
+  }
+  auto execution_manager_lock = execution_manager_.lock();
+  if (execution_manager_lock == nullptr) {
+    return absl::FailedPreconditionError("Execution manager is not available.");
+  }
+
+  auto cancelled = std::make_shared<std::atomic<bool>>(false);
+  ASSIGN_OR_RETURN(auto task_id, execution_manager_lock->GetNewTaskId());
+  RETURN_IF_ERROR(execution_manager_lock->AddTextScoringTask(
+      session_id_, task_id, last_task_ids_, target_text, store_token_lengths,
+      cancelled, std::move(callback)));
+
+  return std::make_unique<AdvancedTaskController>(task_id, cancelled,
+                                                  execution_manager_);
 }
 
 absl::StatusOr<Responses> SessionAdvanced::GenerateContent(
@@ -252,15 +294,12 @@ absl::Status SessionAdvanced::GenerateContentStream(
           return;
         }
         if (prefill_responses->GetTaskState() == TaskState::kDone) {
-          std::thread([this, stream_callback = std::move(stream_callback),
-                       decode_config]() mutable {
             auto decode_task_controller =
                 RunDecodeAsync(std::move(stream_callback), decode_config);
             if (!decode_task_controller.ok()) {
               ABSL_LOG(ERROR) << "Failed to start decode task: "
                               << decode_task_controller.status();
             }
-          }).detach();
         } else if (IsTaskEndState(prefill_responses->GetTaskState())) {
           stream_callback(absl::CancelledError(
               "Prefill task finished in cancelled state."));
@@ -290,7 +329,18 @@ absl::StatusOr<BenchmarkInfo*> SessionAdvanced::GetMutableBenchmarkInfo() {
   return execution_manager_lock->GetMutableBenchmarkInfo(session_id_);
 }
 
-absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::Clone(
+absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::Clone() {
+  absl::Status status = absl::OkStatus();
+  ASSIGN_OR_RETURN(auto session,
+                   CloneAsync([&status](absl::StatusOr<Responses> responses) {
+                     status = responses.status();
+                   }));
+  RETURN_IF_ERROR(WaitUntilDone());
+  RETURN_IF_ERROR(status);
+  return session;
+}
+
+absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::CloneAsync(
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
   auto execution_manager_lock = execution_manager_.lock();
   if (execution_manager_lock == nullptr) {

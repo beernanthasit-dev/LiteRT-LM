@@ -34,6 +34,7 @@
 #include "runtime/components/model_resources.h"
 #include "runtime/core/session_factory.h"
 #include "runtime/engine/engine.h"
+#include "runtime/engine/engine_factory.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/audio_executor.h"
@@ -60,7 +61,7 @@ namespace {
 // environment during the whole application lifetime. This is required for GPU
 // LiteRT environment. See b/454383477 for more details.
 absl::StatusOr<Environment&> GetEnvironment(
-    const EngineSettings& engine_settings, ModelResources& model_resources) {
+    EngineSettings& engine_settings, ModelResources& model_resources) {
   // Helper must be available until LlmLiteRtCompiledModelExecutor::Create() is
   // called. Since env is used multiple times, it should also be static.
   static absl::NoDestructor<MagicNumberConfigsHelper> helper;
@@ -78,27 +79,51 @@ absl::StatusOr<Environment&> GetEnvironment(
                   ->configure_magic_numbers) {
             env_options = helper->GetLiteRtEnvOptions(model_resources,
                                                       main_executor_settings);
+            // Disable madvise original shared tensors for GPU if the model has
+            // magic numbers as it may revert the magic number replacements.
+            if (helper->magic_number_configs() &&
+                helper->magic_number_configs()->num_configs > 0) {
+              auto& executor_settings =
+                  engine_settings.GetMutableMainExecutorSettings();
+              AdvancedSettings new_settings;
+              if (executor_settings.GetAdvancedSettings()) {
+                new_settings = *executor_settings.GetAdvancedSettings();
+              }
+              new_settings.gpu_madvise_original_shared_tensors = false;
+              executor_settings.SetAdvancedSettings(new_settings);
+            }
           }
         } else {
 #if defined(LITERT_DISABLE_NPU)
           return absl::InvalidArgumentError(
               "Only CPU and GPU backends are supported.");
 #else
-          std::string model_path(
-              main_executor_settings.GetModelAssets().GetPath().value_or(""));
-          std::filesystem::path path(model_path);
-          // Note: Existence check for path was here, but it's better to check
-          // before calling this function if needed.
-          static const absl::NoDestructor<std::string> kDispatchLibraryPath(
-              path.parent_path().string());
-          if (!kDispatchLibraryPath->empty()) {
-            ABSL_LOG(INFO) << "Setting dispatch library path: "
-                           << *kDispatchLibraryPath;
+          if (!main_executor_settings.GetLitertDispatchLibDir().empty()) {
+            // If the dispatch library directory is provided, use it.
             env_options.push_back(::litert::Environment::Option{
                 ::litert::Environment::OptionTag::DispatchLibraryDir,
-                absl::string_view(*kDispatchLibraryPath)});
+                main_executor_settings.GetLitertDispatchLibDir()});
+            ABSL_LOG(INFO) << "Setting dispatch library path from "
+                              "main_executor_settings: "
+                           << main_executor_settings.GetLitertDispatchLibDir();
           } else {
-            ABSL_LOG(INFO) << "No dispatch library path provided.";
+            // Otherwise, use the directory of the model file.
+            std::string model_path(
+                main_executor_settings.GetModelAssets().GetPath().value_or(""));
+            std::filesystem::path path(model_path);
+            // Note: Existence check for path was here, but it's better to check
+            // before calling this function if needed.
+            static const absl::NoDestructor<std::string> kDispatchLibraryPath(
+                path.parent_path().string());
+            if (!kDispatchLibraryPath->empty()) {
+              ABSL_LOG(INFO) << "Setting dispatch library path: "
+                            << *kDispatchLibraryPath;
+              env_options.push_back(::litert::Environment::Option{
+                  ::litert::Environment::OptionTag::DispatchLibraryDir,
+                  absl::string_view(*kDispatchLibraryPath)});
+            } else {
+              ABSL_LOG(INFO) << "No dispatch library path provided.";
+            }
           }
 #endif  // defined(LITERT_DISABLE_NPU)
         }
@@ -304,5 +329,12 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
 
   return llm_impl;
 };
+
+LITERT_LM_REGISTER_ENGINE(EngineFactory::EngineType::kLiteRTCompiledModel,
+                          [](EngineSettings settings,
+                             absl::string_view input_prompt_as_hint) {
+                            return Engine::CreateEngine(std::move(settings),
+                                                        input_prompt_as_hint);
+                          });
 
 }  // namespace litert::lm

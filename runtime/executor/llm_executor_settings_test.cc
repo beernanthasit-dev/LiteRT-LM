@@ -234,6 +234,7 @@ lora_rank: 0
 cache_dir: )",
       kPathToCache, R"(
 cache_file: Not set
+litert_dispatch_lib_dir: Not set
 model_assets: model_path: )",
       kPathToModel1, R"(
 fake_weights_mode: FAKE_WEIGHTS_NONE
@@ -258,7 +259,7 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
       .num_output_candidates = 3,
       .configure_magic_numbers = true,
       .verify_magic_numbers = true,
-      .clear_kv_cache_before_prefill = true,
+      .clear_kv_cache_before_prefill = false,
       .num_logits_to_print_after_decode = 10,
       .gpu_madvise_original_shared_tensors = true,
       .is_benchmark = true,
@@ -268,6 +269,7 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
       .convert_weights_on_gpu = true,
       .optimize_shader_compilation = false,
       .share_constant_tensors = false,
+      .sampler_handles_input = false,
   });
 
   std::stringstream oss;
@@ -291,6 +293,7 @@ lora_rank: 0
 cache_dir: )",
       kPathToCache, R"(
 cache_file: Not set
+litert_dispatch_lib_dir: Not set
 model_assets: model_path: )",
       kPathToModel1, R"(
 fake_weights_mode: FAKE_WEIGHTS_NONE
@@ -299,7 +302,7 @@ advanced_settings: prefill_batch_sizes: [128, 256]
 num_output_candidates: 3
 configure_magic_numbers: 1
 verify_magic_numbers: 1
-clear_kv_cache_before_prefill: 1
+clear_kv_cache_before_prefill: 0
 num_logits_to_print_after_decode: 10
 gpu_madvise_original_shared_tensors: 1
 is_benchmark: 1
@@ -309,6 +312,7 @@ num_threads_to_compile: 2
 convert_weights_on_gpu: 1
 optimize_shader_compilation: 0
 share_constant_tensors: 0
+sampler_handles_input: 0
 
 )");
   EXPECT_EQ(oss.str(), expected_output);

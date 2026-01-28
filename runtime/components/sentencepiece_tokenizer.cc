@@ -24,6 +24,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "sentencepiece_model.pb.h"  // from @sentencepiece
 #include "sentencepiece_processor.h"  // from @sentencepiece
 
 namespace litert::lm {
@@ -42,6 +43,17 @@ absl::StatusOr<std::unique_ptr<SentencePieceTokenizer>>
 SentencePieceTokenizer::CreateFromBuffer(absl::string_view model_buffer) {
   auto processor = std::make_unique<sentencepiece::SentencePieceProcessor>();
   auto status = processor->LoadFromSerializedProto(model_buffer);
+  if (!status.ok()) {
+    return status;
+  }
+  return absl::WrapUnique(new SentencePieceTokenizer(std::move(processor)));
+}
+
+absl::StatusOr<std::unique_ptr<SentencePieceTokenizer>>
+SentencePieceTokenizer::CreateFromProto(
+    std::unique_ptr<sentencepiece::ModelProto> model_proto) {
+  auto processor = std::make_unique<sentencepiece::SentencePieceProcessor>();
+  auto status = processor->Load(std::move(model_proto));
   if (!status.ok()) {
     return status;
   }
@@ -75,6 +87,14 @@ absl::StatusOr<std::string> SentencePieceTokenizer::TokenIdsToText(
     text += processor_->IdToPiece(token_id);
   }
   return text;
+}
+
+std::vector<std::string> SentencePieceTokenizer::GetTokens() const {
+  std::vector<std::string> tokens;
+  for (const auto& piece : processor_->model_proto().pieces()) {
+    tokens.push_back(piece.piece());
+  }
+  return tokens;
 }
 
 }  // namespace litert::lm

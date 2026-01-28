@@ -104,11 +104,26 @@ the pre-built binary below to run the LiteRT-LM immediately.
 After the download the `lit` binary, just run `lit` to see the options.
 Simple use case is like:
 
+```shell
+# Set the HuggingFace token in the HUGGING_FACE_HUB_TOKEN environment variable
+# so that lit can pull the model from HuggingFace.
+
+# On Linux or MacOS
+export HUGGING_FACE_HUB_TOKEN="**your huggingface token**"
+
+# On Windows Command Prompt
+set HUGGING_FACE_HUB_TOKEN=your_huggingface_token
+
+# On Windows Powershell
+$env:HUGGING_FACE_HUB_TOKEN = "your_huggingface_token"
 ```
+
+```shell
 lit list --show_all
-lit pull gemma3-1b --hf_token="**your huggingface token**"
+lit pull gemma3-1b
 lit run gemma3-1b [--backend=<cpu|gpu>]
 ```
+
 Note: **Running GPU on Windows needs DirectXShaderCompiler**
  <span id="windows_gpu"></span>
  Download the dxc_2025_07_14.zip or the latest zip file from
@@ -210,12 +225,14 @@ device and your development platform.
 
 > Note: In order to run on GPU on all platforms, we need to take extra steps:
 >
+> 1. Install [Git LFS](https://git-lfs.com), then run `git lfs checkout` to fetch
+  prebuilt binaries. These steps are required only once if not done before.
 > 1. Add `--define=litert_link_capi_so=true`
   `--define=resolve_symbols_in_exec=false` in the build command.
-> 2. `mkdir -p <test_dir>; cp <your litert_lm_main> <test_dir>; cp ./prebuilt/<your OS>/<shared libaries> <test_dir>/`
+> 1. `mkdir -p <test_dir>; cp <your litert_lm_main> <test_dir>; cp ./prebuilt/<your OS>/<shared libaries> <test_dir>/`
  and make sure the prebuilt .so/.dll/.dylib files are in the same directory as
   `litert_lm_main` binary
-> 3. Running GPU on Windows needs DirectXShaderCompiler. See
+> 1. Running GPU on Windows needs DirectXShaderCompiler. See
  [this Note](#windows_gpu) for more details.
 
 <details>

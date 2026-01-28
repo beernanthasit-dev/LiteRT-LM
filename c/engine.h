@@ -86,12 +86,9 @@ typedef struct {
 // Creates a LiteRT LM Session Config.
 // The caller is responsible for destroying the config using
 // `litert_lm_session_config_delete`.
-// @param sampler_params The sampler parameters to use. If NULL, default
-// sampler parameters will be used.
 // @return A pointer to the created config, or NULL on failure.
 LITERT_LM_C_API_EXPORT
-LiteRtLmSessionConfig* litert_lm_session_config_create(
-    const LiteRtLmSamplerParams* sampler_params);
+LiteRtLmSessionConfig* litert_lm_session_config_create();
 
 // Sets the maximum number of output tokens per decode step for this session.
 // @param config The config to modify.
@@ -99,6 +96,13 @@ LiteRtLmSessionConfig* litert_lm_session_config_create(
 LITERT_LM_C_API_EXPORT
 void litert_lm_session_config_set_max_output_tokens(
     LiteRtLmSessionConfig* config, int max_output_tokens);
+
+// Sets the sampler parameters for this session config.
+// @param config The config to modify.
+// @param sampler_params The sampler parameters to use.
+LITERT_LM_C_API_EXPORT
+void litert_lm_session_config_set_sampler_params(
+    LiteRtLmSessionConfig* config, const LiteRtLmSamplerParams* sampler_params);
 
 // Destroys a LiteRT LM Session Config.
 // @param config The config to destroy.
@@ -181,6 +185,16 @@ void litert_lm_engine_settings_set_max_num_tokens(
 LITERT_LM_C_API_EXPORT
 void litert_lm_engine_settings_set_cache_dir(LiteRtLmEngineSettings* settings,
                                              const char* cache_dir);
+
+// Sets the activation data type.
+//
+// @param settings The engine settings.
+// @param activation_data_type_int The activation data type. See
+// `ActivationDataType` in executor_settings_base.h for the possible values
+// (e.g., 0 for F32, 1 for F16, 2 for I16, 3 for I8).
+LITERT_LM_C_API_EXPORT
+void litert_lm_engine_settings_set_activation_data_type(
+    LiteRtLmEngineSettings* settings, int activation_data_type_int);
 
 // Enables benchmarking for the engine.
 //
@@ -274,6 +288,10 @@ void litert_lm_benchmark_info_delete(LiteRtLmBenchmarkInfo* benchmark_info);
 
 // Returns the time to the first token in seconds.
 //
+// Note that the first time to token doesn't include the time for
+// initialization. It is the sum of the prefill time for the first turn and
+// the time spent for decoding the first token.
+//
 // @param benchmark_info The benchmark info object.
 // @return The time to the first token in seconds.
 LITERT_LM_C_API_EXPORT
@@ -295,6 +313,26 @@ int litert_lm_benchmark_info_get_num_prefill_turns(
 LITERT_LM_C_API_EXPORT
 int litert_lm_benchmark_info_get_num_decode_turns(
     const LiteRtLmBenchmarkInfo* benchmark_info);
+
+// Returns the prefill token count at a given turn index.
+//
+// @param benchmark_info The benchmark info object.
+// @param index The index of the prefill turn.
+// @return The prefill token count.
+LITERT_LM_C_API_EXPORT
+int litert_lm_benchmark_info_get_prefill_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index);
+
+
+// Returns the decode token count at a given turn index.
+//
+// @param benchmark_info The benchmark info object.
+// @param index The index of the decode turn.
+// @return The decode token count.
+LITERT_LM_C_API_EXPORT
+int litert_lm_benchmark_info_get_decode_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index);
+
 
 // Returns the prefill tokens per second at a given turn index.
 //

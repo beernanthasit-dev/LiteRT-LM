@@ -42,6 +42,8 @@ ABSL_FLAG(int, max_num_tokens, 0,
           "length will be determined by some heuristic. On benchmark mode, it "
           "will be set to one equal to or greater than "
           "benchmark_prefill_tokens + benchmark_decode_tokens.");
+ABSL_FLAG(int, max_num_images, 1,
+          "Maximum number of images to use for LLM execution.");
 ABSL_FLAG(std::vector<std::string>, prefill_batch_sizes, {},
           "A list of maximum numbers of prefill tokens processed at once. If "
           "empty, it will be the list of one entry with the length of input "
@@ -81,7 +83,7 @@ ABSL_FLAG(bool, verify_magic_numbers, false,
           "If true and the model contains magic numbers and test signatures, "
           "verify magic number configs when the real dimensions that replaced "
           "magic numbers match with ones of test signatures.");
-ABSL_FLAG(bool, clear_kv_cache_before_prefill, false,
+ABSL_FLAG(bool, clear_kv_cache_before_prefill, true,
           "If true, clear kv cache before the first prefill step. This may "
           "help to disclose any issues related to kv cache.");
 ABSL_FLAG(int, num_logits_to_print_after_decode, 0,
@@ -113,3 +115,10 @@ ABSL_FLAG(bool, share_constant_tensors, true,
           "If true, the executor will enable constant tensor sharing.");
 ABSL_FLAG(int, num_iterations, 1,
           "Number of iterations to run the model. By default, it's 1.");
+ABSL_FLAG(std::string, litert_dispatch_lib_dir, "",
+          "Directory of the LiteRT dispatch library. If not set, the runtime "
+          "will look for the library in the path defined as the environment "
+          "variables.");
+ABSL_FLAG(bool, sampler_handles_input, true,
+          "If true and the sampler supports, the sampler manipulates decode "
+          "input tensors including tokens, positions, and mask.");

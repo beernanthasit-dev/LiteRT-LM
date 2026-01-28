@@ -23,6 +23,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
+#include "sentencepiece_model.pb.h"  // from @sentencepiece
 #include "sentencepiece_processor.h"  // from @sentencepiece
 
 namespace litert::lm {
@@ -39,6 +40,10 @@ class SentencePieceTokenizer : public Tokenizer {
   static absl::StatusOr<std::unique_ptr<SentencePieceTokenizer>>
   CreateFromBuffer(absl::string_view model_buffer);
 
+  // Creates a SentencePieceTokenizer from a model proto.
+  static absl::StatusOr<std::unique_ptr<SentencePieceTokenizer>>
+  CreateFromProto(std::unique_ptr<sentencepiece::ModelProto> model_proto);
+
   TokenizerType GetTokenizerType() const override {
     return TokenizerType::kSentencePiece;
   }
@@ -54,6 +59,9 @@ class SentencePieceTokenizer : public Tokenizer {
   // Decodes the given sequence of token ids into a string.
   absl::StatusOr<std::string> TokenIdsToText(
       const std::vector<int>& token_ids) override;
+
+  // Returns the tokens in the SentencePiece model.
+  std::vector<std::string> GetTokens() const override;
 
   const sentencepiece::SentencePieceProcessor& GetProcessor() const {
     return *processor_;

@@ -61,6 +61,7 @@ struct LiteRtLmSettings {
   std::optional<std::string> expected_output = std::nullopt;
   std::optional<std::string> log_sink_file = std::nullopt;
   int max_num_tokens = 0;
+  int max_num_images = 0;
   absl::LogSeverity min_log_level = absl::LogSeverity::kInfo;
   std::set<int> prefill_batch_sizes;
   int num_output_candidates = 1;
@@ -78,7 +79,7 @@ struct LiteRtLmSettings {
   bool gpu_external_tensor_mode = false;
   bool configure_magic_numbers = true;
   bool verify_magic_numbers = false;
-  bool clear_kv_cache_before_prefill = false;
+  bool clear_kv_cache_before_prefill = true;
   int num_logits_to_print_after_decode = 0;
   std::optional<std::string> score_target_text = std::nullopt;
   bool gpu_madvise_original_shared_tensors = true;
@@ -94,6 +95,8 @@ struct LiteRtLmSettings {
   // Note that session does not add necessary prompt templates.
   bool use_session = false;
   int num_iterations = 1;
+  std::string litert_dispatch_lib_dir = "";
+  bool sampler_handles_input = true;
 };
 
 // Runs the LLM inference with the given settings.

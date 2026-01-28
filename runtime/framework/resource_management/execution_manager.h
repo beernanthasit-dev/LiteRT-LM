@@ -29,13 +29,16 @@
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "runtime/components/constrained_decoding/constraint.h"
+#include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
+#include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/audio_executor_settings.h"
@@ -111,6 +114,7 @@ class ExecutionManager {
   //   This can be null if no LLM context is needed.
   static absl::StatusOr<std::unique_ptr<ExecutionManager>> Create(
       Tokenizer* absl_nonnull tokenizer,
+      ModelResources* absl_nullable model_resources,
       std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
       std::unique_ptr<VisionExecutorSettings> absl_nullable
       vision_executor_settings,
@@ -118,7 +122,9 @@ class ExecutionManager {
       audio_executor_settings,
       ::litert::Environment* absl_nullable litert_env);
 
-  ~ExecutionManager() = default;
+  ~ExecutionManager() {
+    WaitUntilAllDone(Engine::kDefaultTimeout).IgnoreError();
+  };
 
   // Waits until the task is done or the timeout is reached.
   // Returns:
@@ -220,6 +226,26 @@ class ExecutionManager {
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
 
+  // Adds a text scoring task to the execution manager.
+  // - session_id: The ID of the session that created the task.
+  // - task_id: The task ID of the task.
+  // - dep_tasks: The dependent tasks that should be done before the text
+  //   scoring task starts.
+  // - target_text: The target text to be scored.
+  // - store_token_lengths: Whether to store the token lengths in the
+  //   responses.
+  // - cancelled: The cancelled flag for the text scoring task.
+  // - callback: The callback function.
+  // Note: AddTextScoringTask will acquire the task lookup mutex.
+  absl::Status AddTextScoringTask(
+      SessionId session_id, TaskId task_id,
+      absl::flat_hash_set<TaskId> dep_tasks,
+      const std::vector<absl::string_view>& target_text,
+      bool store_token_lengths,
+      std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
+      ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
+
  private:
   // Private constructor. Use the Create function instead.
   ExecutionManager(
@@ -231,6 +257,9 @@ class ExecutionManager {
         litert_env_(litert_env) {
     execution_thread_pool_ =
         std::make_unique<ThreadPool>(/*name_prefix=*/"execution_thread_pool",
+                                     /*max_num_threads=*/1);
+    callback_thread_pool_ =
+        std::make_unique<ThreadPool>(/*name_prefix=*/"callback_thread_pool",
                                      /*max_num_threads=*/1);
   }
 
@@ -359,6 +388,12 @@ class ExecutionManager {
 
   // The thread pool with a single worker thread used for executing the tasks.
   std::unique_ptr<ThreadPool> absl_nonnull execution_thread_pool_;
+
+  // The thread pool used for running the callbacks without blocking the
+  // execution thread pool.
+  // TODO b/476205457 - Consider updating all the callback triggering to use
+  // this thread pool, and remove the syncing logic.
+  std::unique_ptr<ThreadPool> absl_nonnull callback_thread_pool_;
 };
 
 }  // namespace litert::lm

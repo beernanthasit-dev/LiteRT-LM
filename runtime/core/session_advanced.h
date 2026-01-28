@@ -91,20 +91,8 @@ class SessionAdvanced : public Engine::Session {
       std::optional<BenchmarkInfo> benchmark_info);
 
   // TODO b/409401231 - Call execution manager's release session instead.
+  // Wait until all tasks are done before destroying the session.
   ~SessionAdvanced() override {
-    CancelProcess();
-    auto execution_manager_lock = execution_manager_.lock();
-    if (execution_manager_lock == nullptr) {
-      ABSL_LOG(ERROR) << "Execution manager should not be deleted before "
-                         "Session is deleted.";
-      return;
-    }
-
-    auto status = execution_manager_lock->CancelAllTasksInSession(session_id_);
-    if (!status.ok()) {
-      ABSL_LOG(ERROR) << "Failed to release session: " << status;
-    }
-
     WaitUntilDone().IgnoreError();
   };
 
@@ -131,6 +119,12 @@ class SessionAdvanced : public Engine::Session {
   // the negative log probability of seeing the target text during decode.
   absl::StatusOr<Responses> RunTextScoring(
       const std::vector<absl::string_view>& target_text,
+      bool store_token_lengths) override;
+
+  absl::StatusOr<std::unique_ptr<Engine::Session::TaskController>>
+  RunTextScoringAsync(
+      const std::vector<absl::string_view>& target_text,
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
       bool store_token_lengths) override;
 
   absl::Status RunPrefill(const std::vector<InputData>& contents) override;
@@ -187,7 +181,10 @@ class SessionAdvanced : public Engine::Session {
   }
 
   // TODO b/409401231 - Add unit tests for this function.
-  absl::StatusOr<std::unique_ptr<Session>> Clone(
+  absl::StatusOr<std::unique_ptr<Session>> Clone() override;
+
+  // TODO b/409401231 - Add unit tests for this function.
+  absl::StatusOr<std::unique_ptr<Session>> CloneAsync(
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override;
 
  private:

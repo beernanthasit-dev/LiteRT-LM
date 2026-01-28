@@ -27,6 +27,8 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "runtime/components/constrained_decoding/constraint.h"
+#include "runtime/components/constrained_decoding/constraint_provider.h"
+#include "runtime/components/constrained_decoding/constraint_provider_config.h"
 #include "runtime/components/prompt_template.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
@@ -138,11 +140,18 @@ class ConversationConfig {
       return *this;
     }
 
+    // Sets the configuration for the constraint provider.
+    Builder& SetConstraintProviderConfig(
+        const ConstraintProviderConfig& constraint_provider_config) {
+      constraint_provider_config_ = constraint_provider_config;
+      return *this;
+    }
+
     absl::StatusOr<ConversationConfig> Build(const Engine& engine) {
       return ConversationConfig::CreateInternal(
           engine, session_config_, preface_, overwrite_prompt_template_,
           overwrite_processor_config_, enable_constrained_decoding_,
-          prefill_preface_on_init_);
+          prefill_preface_on_init_, constraint_provider_config_);
     }
 
    private:
@@ -152,7 +161,14 @@ class ConversationConfig {
     std::optional<DataProcessorConfig> overwrite_processor_config_;
     bool enable_constrained_decoding_ = false;
     bool prefill_preface_on_init_ = false;
+    std::optional<ConstraintProviderConfig> constraint_provider_config_;
   };
+
+  // Returns the constrained decoding config.
+  const std::optional<ConstraintProviderConfig>& constraint_provider_config()
+      const {
+    return constraint_provider_config_;
+  }
 
  private:
   // Creates a ConversationConfig.
@@ -186,19 +202,24 @@ class ConversationConfig {
       std::optional<DataProcessorConfig> overwrite_processor_config =
           std::nullopt,
       bool enable_constrained_decoding = false,
-      bool prefill_preface_on_init = false);
+      bool prefill_preface_on_init = false,
+      std::optional<ConstraintProviderConfig> constraint_provider_config =
+          std::nullopt);
 
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
                               DataProcessorConfig processor_config,
                               bool constrained_decoding_enabled = false,
-                              bool prefill_preface_on_init = false)
+                              bool prefill_preface_on_init = false,
+                              std::optional<ConstraintProviderConfig>
+                                  constraint_provider_config = std::nullopt)
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
         processor_config_(std::move(processor_config)),
         constrained_decoding_enabled_(constrained_decoding_enabled),
-        prefill_preface_on_init_(prefill_preface_on_init) {}
+        prefill_preface_on_init_(prefill_preface_on_init),
+        constraint_provider_config_(std::move(constraint_provider_config)) {}
 
   SessionConfig session_config_;
   Preface preface_;
@@ -206,6 +227,61 @@ class ConversationConfig {
   DataProcessorConfig processor_config_;
   bool constrained_decoding_enabled_;
   bool prefill_preface_on_init_;
+  std::optional<ConstraintProviderConfig> constraint_provider_config_;
+};
+
+// Optional arguments for sending a message to the LLM.
+struct OptionalArgs {
+  // Whether there is a pending message to be sent. If true, only the prefill
+  // stage of LLM will be triggered, and the following decode stage will be
+  // skipped. This is useful for the case where we need to append multiple
+  // messages to the conversation, but only want to generate a response once.
+  //
+  // To also trigger the decode stage, set this field to false. Or to explicitly
+  // trigger the decode stage only, set this field to false and send an empty
+  // content message.
+  //
+  // Note: this option is only valid for model templates and
+  // ModelDataProcessor that supports single turn prompt rendering.
+  //
+  // Example usages:
+  //
+  // Append multiple messages to the conversation without triggering the decode
+  // stage.
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", "Hello world!"}},
+  //   {.has_pending_message = true}));
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", " This is a long message."}},
+  //   {.has_pending_message = true}));
+  //
+  // By sending a message with has_pending_message set to false, the decode
+  // stage will be triggered, and the decode result will be returned.
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", " This is the last message."}},
+  //   {.has_pending_message = false}));
+  //
+  // Alternatively, send an empty message with has_pending_message set to false
+  // to only trigger the decode stage.
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", " This is the last message."}},
+  //   {.has_pending_message = true}));
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", ""}},
+  //   {.has_pending_message = false}));
+  bool has_pending_message = false;
+
+  // The constraint to be used for constrained decoding.
+  std::optional<ConstraintArg> decoding_constraint = std::nullopt;
+
+  // The arguments for the model data processor. Most of the time, the users
+  // don't need to provide this argument.
+  std::optional<DataProcessorArguments> args = std::nullopt;
 };
 
 // A multi-turn centric stateful Conversation API for high-level user
@@ -265,14 +341,12 @@ class Conversation {
   // - `message`: The message to be sent to the LLM. If `message` is an array,
   //    each element will be treated as a separate message and be prefilled
   //    before generating the response.
-  // - `args`: The optional arguments for the corresponding model data
-  //    processor. Most of the time, the users don't need to provide this
-  //    argument.
+  // - `optional_args`: The optional arguments for sending the message. See the
+  //    definition of `OptionalArgs` for more details.
   // Returns :
   // - The complete message from the LLM.
   absl::StatusOr<Message> SendMessage(
-      const Message& message,
-      std::optional<DataProcessorArguments> args = std::nullopt);
+      const Message& message, OptionalArgs optional_args = OptionalArgs());
 
   // Sends a message to the LLM and process the asynchronous message results via
   // the user_callback.
@@ -289,16 +363,15 @@ class Conversation {
   //      with absl::CancelledError.
   //    - When an error occurs, the user_callback will be invoked with the error
   //      status.
-  // - `args`: The optional arguments for the corresponding model data
-  //    processor. Most of the time, the users don't need to provide this
-  //    argument.
+  // - `optional_args`: The optional arguments for sending the message. See the
+  //    definition of `OptionalArgs` for more details.
   // Returns :
   // - absl::OkStatus if the message is sent and processing successfully,
   //   otherwise the error status.
   absl::Status SendMessageAsync(
       const Message& message,
       absl::AnyInvocable<void(absl::StatusOr<Message>)> user_callback,
-      std::optional<DataProcessorArguments> args = std::nullopt);
+      OptionalArgs optional_args = OptionalArgs());
 
   // Returns the history of the conversation.
   // Note: the return value is a copy of the history, which may be expensive
@@ -352,16 +425,26 @@ class Conversation {
   explicit Conversation(
       std::unique_ptr<Engine::Session> session,
       std::unique_ptr<ModelDataProcessor> model_data_processor, Preface preface,
-      PromptTemplate prompt_template, ConversationConfig config)
+      PromptTemplate prompt_template, ConversationConfig config,
+      std::unique_ptr<ConstraintProvider> constraint_provider = nullptr)
       : session_(std::move(session)),
         model_data_processor_(std::move(model_data_processor)),
         preface_(preface),
         prompt_template_(std::move(prompt_template)),
-        config_(config) {}
+        config_(config),
+        constraint_provider_(std::move(constraint_provider)) {}
 
-  absl::StatusOr<std::string> GetSingleTurnText(const Message& message) const;
+  absl::StatusOr<std::string> GetSingleTurnText(
+      const Message& message, const OptionalArgs& optional_args);
 
-  absl::StatusOr<DecodeConfig> CreateDecodeConfig();
+  absl::StatusOr<std::string> GetSingleTurnTextFromFullHistory(
+      const JsonMessage& json_message, const OptionalArgs& optional_args);
+
+  absl::StatusOr<std::string> GetSingleTurnTextFromSingleTurnTemplate(
+      const JsonMessage& json_message, const OptionalArgs& optional_args);
+
+  absl::StatusOr<DecodeConfig> CreateDecodeConfig(
+      std::optional<ConstraintArg> decoding_constraint = std::nullopt);
 
   std::unique_ptr<Engine::Session> session_;
   std::unique_ptr<ModelDataProcessor> model_data_processor_;
@@ -371,8 +454,12 @@ class Conversation {
   // if any.
   std::unique_ptr<Constraint> constraint_;
   const ConversationConfig config_;
+  std::unique_ptr<ConstraintProvider> constraint_provider_ = nullptr;
   mutable absl::Mutex history_mutex_;
   std::vector<Message> history_ ABSL_GUARDED_BY(history_mutex_);
+
+  // Whether the current conversation is in message appending state.
+  bool is_appending_message_ = false;
 };
 }  // namespace litert::lm
 

@@ -256,6 +256,9 @@ enum class TaskState {
   kCancelled,               // The task is cancelled.
   kDependentTaskCancelled,  // The task was cancelled because a dependent task
                             // was cancelled.
+  kLastCallbackQueued,      // The last callback is queued to be called.
+                            // This is internal state, will not be called to the
+                            // user callback.
 };
 std::ostream& operator<<(std::ostream& os, const TaskState& task_state);
 
@@ -400,12 +403,12 @@ class BenchmarkInfo {
 
   // --- Calculated metrics and getters for Prefill ---
   uint64_t GetTotalPrefillTurns() const;
-  const BenchmarkTurnData& GetPrefillTurn(int turn_index) const;
+  absl::StatusOr<BenchmarkTurnData> GetPrefillTurn(int turn_index) const;
   double GetPrefillTokensPerSec(int turn_index) const;
 
   // --- Calculated metrics and getters for Decode ---
   uint64_t GetTotalDecodeTurns() const;
-  const BenchmarkTurnData& GetDecodeTurn(int turn_index) const;
+  absl::StatusOr<BenchmarkTurnData> GetDecodeTurn(int turn_index) const;
   double GetDecodeTokensPerSec(int turn_index) const;
 
   // --- Gets the time to the first token ---

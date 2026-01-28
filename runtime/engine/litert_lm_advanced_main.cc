@@ -46,7 +46,7 @@
 #include "runtime/engine/shared_flags.h"
 #include "runtime/util/status_macros.h"
 
-ABSL_FLAG(std::string, backend, "gpu",
+ABSL_FLAG(std::string, backend, "cpu",
           "Executor backend to use for LLM execution (cpu, gpu, etc.)");
 ABSL_FLAG(std::string, model_path, "", "Model path to use for LLM execution.");
 ABSL_FLAG(std::string, input_prompt, "",
@@ -139,7 +139,11 @@ absl::Status MainHelper(int argc, char** argv) {
            "[--num_threads_to_compile=<num_threads_to_compile>]"
            "[--convert_weights_on_gpu=<true|false>]"
            "[--optimize_shader_compilation=<true|false>]"
-           "[--share_constant_tensors=<true|false>]";
+           "[--share_constant_tensors=<true|false>]"
+           "[--num_iterations=<num_iterations>]"
+           "[--litert_dispatch_lib_dir=<litert_dispatch_lib_dir>]"
+           "[--sampler_handles_input=<true|false>]"
+           "[--disable_cache=<true|false>]";
     ABSL_LOG(INFO)
         << "To provide data for multimodality, use [image:/path/to/image.jpg] "
            "or [audio:/path/to/audio.wav] in the input prompt. e.g. \"Describe "
@@ -159,6 +163,7 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.expected_output = absl::GetFlag(FLAGS_expected_output);
   settings.log_sink_file = absl::GetFlag(FLAGS_log_sink_file);
   settings.max_num_tokens = absl::GetFlag(FLAGS_max_num_tokens);
+  settings.max_num_images = absl::GetFlag(FLAGS_max_num_images);
   ASSIGN_OR_RETURN(
       settings.prefill_batch_sizes,
       ParsePrefillBatchSizes(absl::GetFlag(FLAGS_prefill_batch_sizes)));
@@ -198,6 +203,9 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.share_constant_tensors = absl::GetFlag(FLAGS_share_constant_tensors);
   settings.use_session = absl::GetFlag(FLAGS_use_session);
   settings.num_iterations = absl::GetFlag(FLAGS_num_iterations);
+  settings.litert_dispatch_lib_dir =
+      absl::GetFlag(FLAGS_litert_dispatch_lib_dir);
+  settings.sampler_handles_input = absl::GetFlag(FLAGS_sampler_handles_input);
 
   // Adjust max_num_tokens and prefill_batch_size if not set on benchmark mode.
   if (settings.benchmark && settings.benchmark_prefill_tokens > 0) {
